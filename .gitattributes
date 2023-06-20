@@ -1,2 +1,334 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+ import numpy as np
+#CVRP (Capacitated Vehicle Routing Problem) class
+class CVRP:
+    def __init__(self, num_customers, num_vehicles, distance_matrix, demand, vehicle_capacity, time_windows,
+                 max_distance):
+                # Initialize the CVRP class with problem parameters
+
+        self.num_customers = num_customers
+        self.num_vehicles = num_vehicles
+        self.distance_matrix = distance_matrix
+        self.demand = demand
+        self.vehicle_capacity = vehicle_capacity
+        self.time_windows = time_windows
+        self.max_distance = max_distance
+
+        # Initialize placeholder variables
+        self.penalty_factor = 1.0  # Placeholder penalty factor
+        self.x = np.ones((num_customers, num_customers, num_vehicles))  # Placeholder matrix for x
+        self.c = np.ones((num_customers, num_customers, num_vehicles))  # Placeholder matrix for c
+        # Calculate the c matrix for fitness calculation
+        # C -> distance matrix
+        for i in range(num_customers):
+            for j in range(num_customers):
+                for k in range(num_vehicles):
+                    if i != j:
+                        self.c[i][j][k] = distance_matrix[i][j]
+        # Calculate the y matrix for fitness calculation
+
+        self.y = np.zeros((num_customers, num_vehicles))
+        for i in range(num_customers):
+            for k in range(num_vehicles):
+                self.y[i][k] = demand[i]
+        # Calculate the x matrix for fitness calculation
+
+        self.x = np.zeros((num_customers, num_customers, num_vehicles))
+        for i in range(num_customers):
+            for j in range(num_customers):
+                for k in range(num_vehicles):
+                    if i != j:
+                        self.x[i][j][k] = 1
+# Assign the demand array
+
+        self.f = demand
+
+
+
+        #objective function
+
+    def calculate_fitness(self, particle):
+        fitness = 0.0
+        num_customers = self.num_customers
+        vehicle_capacity = self.vehicle_capacity
+
+        # Constraint 1: Number of vehicles arriving and departing from the depot should be the same.
+        # Check if the first and last customer in the particle are the same.
+        if particle[0] != particle[-1]:
+            return np.inf
+
+        # Constraint 2: Each customer should be visited exactly once.
+        # Check if the number of unique customers in the particle is equal to
+        # the total number of customers.
+        if len(set(particle)) != num_customers:
+            return np.inf
+
+        total_demand = np.sum(self.f[particle])
+
+        # Constraint 3: Vehicle capacity should not be exceeded.
+        # Check if any vehicle's demand exceeds the vehicle capacity.
+        if np.any(total_demand > vehicle_capacity):
+            return np.inf
+        #objective function
+        for i in range(num_customers):
+            for j in range(num_customers):
+                for k in range(self.num_vehicles):
+                    # Calculate the fitness based on the distance between customers and the visitation relationship.
+                    fitness += self.c[i][j][k] * self.x[i][j][k]
+                # Add the demand of each customer for each vehicle.
+                fitness += self.f[j] * np.sum(self.y[j])
+
+        return fitness
+
+
+        # Apply penalty for constraint violations
+        penalty = 0.0
+        # Constraint 1: Number of vehicles arriving and departing from the depot should be the same.
+        # Check if the first and last customer in the particle are the same.
+        if particle[0] != particle[-1]:
+            penalty += self.penalty_factor
+            # Constraint 2: Each customer should be visited exactly once.
+            # Check if the number of unique customers in the particle is equal to
+            # the total number of customers.
+        if len(set(particle)) != num_customers:
+            penalty += self.penalty_factor
+            # Constraint 3: Vehicle capacity should not be exceeded.
+            # Check if any vehicle's demand exceeds the vehicle capacity.
+        if np.any(total_demand > vehicle_capacity):
+            penalty += self.penalty_factor
+
+        fitness += penalty
+
+        return fitness
+    #time window constrains
+    # calculate time window
+    def check_time_window(self, route):
+        #total_time: Variable to store the total time window penalty.
+        total_time = 0
+        #for k in range(self.K): Iterate over each vehicle's route.
+        for k in range(self.K):
+            arrival_time = 0  # Initialize arrival time for each vehicle
+        #for customer in route[k]: Iterate over each customer in the current vehicle's route.
+            for customer in route[k]:
+                time_window = self.time_windows[customer]
+                #: Calculate the arrival time for the current customer, considering the distance from the previous customer and the lower bound of the time window.
+                arrival_time = max(arrival_time + self.distance_matrix[route[k][customer - 1]][customer],
+                                   time_window[0])
+                #Calculate the time window penalty for the current customer, considering the difference between the arrival time and the upper bound of the time window. If the arrival time is within the time window, the penalty is 0.
+                total_time += max(0, arrival_time - time_window[1])
+                arrival_time += self.distance_matrix[route[k][customer - 1]][customer]  # Update arrival time
+        return total_time
+
+    def hybrid_pso_ga(self, num_particles, max_iterations, h):
+        # Initialize particles with random permutations
+        particles = self.initialize_particles(num_particles)
+
+        # Initialize velocities for each particle
+        velocities = [np.zeros(self.num_customers) for _ in range(num_particles)]
+
+        # Set personal best positions initially as the particles' positions
+        personal_best_positions = particles.copy()
+
+        # Set global best position initially as the particle with the lowest fitness
+        global_best_position = particles[np.argmin(self.evaluate_fitness(particles))]
+
+        
+    # Iterate for the maximum number of iterations
+
+        for _ in range(max_iterations):
+            
+                    # Update particles and velocities based on personal and global best positions
+
+            particles, velocities = self.update_particles(particles, velocities, personal_best_positions,
+                                                          global_best_position)
+        # Perform crossover operation on particles
+
+            new_particles = self.perform_crossover(particles)
+            
+                    # Perform mutation operation on new particles
+
+            new_particles = self.perform_mutation(new_particles)
+            
+        # Replace particles with new particles based on fitness evaluation
+
+            particles = self.replace_particles(particles, new_particles, self.evaluate_fitness(particles))
+            
+        # Update personal best positions based on new particles' fitness
+
+            for i in range(len(particles)):
+                if self.evaluate_fitness([particles[i]]) < self.evaluate_fitness([personal_best_positions[i]]):
+                    personal_best_positions[i] = particles[i]
+                    
+        # Update global best position based on particles' fitness
+
+            global_best_position = particles[np.argmin(self.evaluate_fitness(particles))]
+
+        return global_best_position
+
+    def initialize_particles(self, num_particles):
+        particles = []
+        for _ in range(num_particles):
+            # Generate a random permutation of customer indices by creating random permutations of customer indices.
+            particle = np.random.permutation(range(1, self.num_customers + 1))
+
+            # Append the particle to the list of particles
+            particles.append(particle)
+
+        return particles
+
+#calculates the fitness values for a given set of particles
+    def evaluate_fitness(self, particles):
+        # List to store the fitness values of the particles
+        fitness_values = []
+
+        # Iterate over each particle in the given list of particles
+        for particle in particles:
+            # Calculate the fitness of the particle using the calculate_fitness method
+            fitness = self.calculate_fitness(particle)
+
+            # Append the fitness value to the fitness_values list
+            fitness_values.append(fitness)
+
+        # Return the list of fitness values
+        return fitness_values
+
+# updates the velocities and positions of particles based on the PSO algorithm,
+# using inertia weight, acceleration coefficients, random numbers,
+# personal best positions, and the global best position.
+    def update_particles(self, particles, velocities, personal_best_positions, global_best_position):
+        # Set the values for the inertia weight (w) and acceleration coefficients (c1, c2)
+        w = 0.5
+        c1 = 1.5
+        c2 = 1.5
+
+        # Iterate over each particle in the given list of particles
+        for i in range(len(particles)):
+            # Retrieve the current particle, velocity, and personal best position
+            particle = particles[i]
+            velocity = velocities[i]
+            personal_best_position = personal_best_positions[i]
+
+            # Generate two random numbers in the range [0, 1)
+            r1 = np.random.random()
+            r2 = np.random.random()
+
+            # Update the velocity of the particle using the particle's current velocity,
+            # personal best position,
+            # and the global best position
+            velocity = w * velocity + c1 * r1 * (personal_best_position - particle) + c2 * r2 * (global_best_position - particle)
+
+            # Update the particle's position by adding the velocity
+            particle = particle + velocity
+
+            # Update the particle and velocity in their respective lists
+            particles[i] = particle
+            velocities[i] = velocity
+
+        return particles, velocities
+
+    def perform_crossover(self, particles):
+        # Initialize an empty list to store the new particles resulting from crossover
+        new_particles = []
+        crossover_rate = 0.8
+
+        # Perform crossover operation for half the number of particles
+        for _ in range(len(particles) // 2):
+            # Select two parents randomly from the given list of particles
+            parent1 = particles[np.random.randint(len(particles))]
+            parent2 = particles[np.random.randint(len(particles))]
+
+            # Choose a random crossover point within the length of the parents' chromosomes
+            crossover_point = np.random.randint(1, len(parent1) - 1)
+
+            # Perform crossover only if the crossover rate is met
+            if np.random.random() < crossover_rate:
+                # Create two children by combining the chromosomes of the parents at the crossover point
+                child1 = np.concatenate((parent1[:crossover_point], parent2[crossover_point:]))
+                child2 = np.concatenate((parent2[:crossover_point], parent1[crossover_point:]))
+            else:
+                # If the crossover rate is not met, the children are the same as the parents
+                child1 = parent1
+                child2 = parent2
+
+            # Add the children to the list of new particles
+            new_particles.extend([child1, child2])
+
+        # Return the list of new particles resulting from crossover
+        return new_particles
+
+    def perform_mutation(self, particles):
+        # Define the mutation rate
+        mutation_rate = 0.1
+
+        # Iterate over each particle in the list of particles
+        for i in range(len(particles)):
+            # Retrieve the current particle
+            particle = particles[i]
+
+            # Iterate over each gene in the particle's chromosome
+            for j in range(len(particle)):
+                # Check if a mutation should occur based on the mutation rate
+                if np.random.random() < mutation_rate:
+                    # Generate two random indices within the length of the particle's chromosome
+                    swap_index1 = np.random.randint(len(particle))
+                    swap_index2 = np.random.randint(len(particle))
+
+                    # Swap the values at the generated indices
+                    particle[swap_index1], particle[swap_index2] = particle[swap_index2], particle[swap_index1] 
+
+                    # Update the particle in the list of particles
+                    particles[i] = particle
+
+        # Return the updated list of particles after mutation
+        return particles
+
+    def replace_particles(self, particles, new_particles, fitness_values):
+        # Combine the existing particles and new particles into a single list
+        combined_particles = particles + new_particles
+
+        # Calculate the fitness values for the combined particles
+        combined_fitness = fitness_values + self.evaluate_fitness(new_particles)
+
+        # Sort the indices of the combined particles based on their fitness values in ascending order
+        sorted_indices = np.argsort(combined_fitness)
+
+        # Select the best particles from the combined list based on the sorted indices
+        new_particles = [combined_particles[i] for i in sorted_indices[:len(particles)]]
+
+        # Return the new set of particles for the next iteration
+        return new_particles
+
+
+# Example usage
+num_particles = 50
+num_customers = 5
+max_iterations = 100
+K = 3  # Number of vehicles
+
+
+distance_matrix = np.array([
+    [0, 5, 8, 3, 2],
+    [5, 0, 4, 7, 9],
+    [8, 4, 0, 6, 3],
+    [3, 7, 6, 0, 5],
+    [2, 9, 3, 5, 0]
+])
+
+demand = np.array([0, 1, 2, 3, 4])
+
+vehicle_capacity = 5
+#time window constrains
+time_windows = [
+    [0, 10],  # Customer 0 time window
+    [5, 15],  # Customer 1 time window
+    [8, 20],  # Customer 2 time window
+    [12, 22],  # Customer 3 time window
+    [10, 25]  # Customer 4 time window
+]
+# total distance constraints
+max_distance = 30
+
+cvrp = CVRP(num_customers, K, distance_matrix, demand, vehicle_capacity, time_windows, max_distance)
+solution = cvrp.hybrid_pso_ga(num_particles, max_iterations, K)
+solution = [round(x) for x in solution]  # Cast solution elements to integers
+
+print("Optimal Route is: ", solution)
